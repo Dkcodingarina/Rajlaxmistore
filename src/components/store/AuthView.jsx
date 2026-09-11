@@ -169,7 +169,7 @@ export default function AuthView() {
       return;
     }
 
-    if (res?.isLocal && res?.user) {
+    if ((res?.isLocal || res?.autoLoggedIn) && res?.user) {
       login(res.user);
       showToast(`Welcome, ${res.user.name}! Your account is active.`, 'success');
       navigateTo(targetView);

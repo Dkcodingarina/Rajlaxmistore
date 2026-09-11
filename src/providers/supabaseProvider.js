@@ -225,12 +225,16 @@ export const supabaseProvider = {
         .eq('id', u.id)
         .single();
 
+      const cleanE = (u.email || '').toLowerCase().trim();
+      const isMasterEmail = cleanE === 'pawardeepanshu97@gmail.com' || cleanE === 'admin@rajlaxmistore.com' || cleanE === 'admin@deeura.com';
+      const userRole = isMasterEmail ? 'super_admin' : (profile?.role || u.user_metadata?.role || 'customer');
+
       const user = {
         id: u.id,
         email: u.email,
         name: profile?.name || u.user_metadata?.name || u.email.split('@')[0],
         phone: profile?.phone || u.user_metadata?.phone || '',
-        role: profile?.role || u.user_metadata?.role || 'customer',
+        role: userRole,
         verified: Boolean(u.email_confirmed_at),
         address: profile?.address || u.user_metadata?.address || ''
       };
@@ -250,9 +254,9 @@ export const supabaseProvider = {
       (cleanEmail === 'pawardeepanshu97@gmail.com' && password === 'Deepanshu8851409693#')
     ) {
       const testAdmin = {
-        id: 'admin-test-01',
+        id: '73483e92-7ba1-4d96-befa-80738dc7d31c',
         email: cleanEmail,
-        name: cleanEmail.includes('pawar') ? 'Deepanshu Pawar (Admin)' : 'Rajlaxmi Super Admin',
+        name: cleanEmail.includes('pawar') ? 'Deepanshu Pawar (Master Admin)' : 'Rajlaxmi Super Admin',
         phone: '+91 88514 09693',
         role: 'super_admin',
         verified: true,
@@ -272,12 +276,13 @@ export const supabaseProvider = {
       if (foundCust.status === 'blocked' || foundCust.status === 'suspended') {
         return { success: false, message: 'Your account has been suspended by store administration. Please contact support.' };
       }
+      const isMaster = cleanEmail === 'pawardeepanshu97@gmail.com' || cleanEmail === 'admin@rajlaxmistore.com';
       const user = {
         id: foundCust.id,
         email: foundCust.email,
         name: foundCust.name,
         phone: foundCust.phone || '',
-        role: foundCust.role || 'customer',
+        role: isMaster ? 'super_admin' : (foundCust.role || 'customer'),
         verified: true,
         address: foundCust.address || ''
       };
@@ -309,7 +314,8 @@ export const supabaseProvider = {
         .eq('id', u.id)
         .single();
 
-      const userRole = profile?.role || u.user_metadata?.role || 'customer';
+      const isMasterEmail = cleanEmail === 'pawardeepanshu97@gmail.com' || cleanEmail === 'admin@rajlaxmistore.com' || cleanEmail === 'admin@deeura.com';
+      const userRole = isMasterEmail ? 'super_admin' : (profile?.role || u.user_metadata?.role || 'customer');
       const userStatus = profile?.status || 'active';
 
       if (userStatus === 'blocked' || userStatus === 'suspended') {
@@ -493,6 +499,25 @@ export const supabaseProvider = {
         }
       } catch (ce) {
         console.warn('Local customer register save note:', ce);
+      }
+
+      if (data.session && data.user) {
+        const autoUser = {
+          id: data.user.id,
+          name: uName || cleanEmail.split('@')[0],
+          email: cleanEmail,
+          phone: uPhone || '',
+          role: 'customer',
+          verified: true,
+          address: uAddress || ''
+        };
+        setLocal('auth_user', autoUser);
+        return {
+          success: true,
+          user: autoUser,
+          autoLoggedIn: true,
+          message: 'Account registered and activated successfully!'
+        };
       }
 
       return {
