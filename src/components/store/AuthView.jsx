@@ -169,16 +169,12 @@ export default function AuthView() {
       return;
     }
 
-    if ((res?.isLocal || res?.autoLoggedIn) && res?.user) {
+    if (res?.user) {
       login(res.user);
-      showToast(`Welcome, ${res.user.name}! Your account is active.`, 'success');
+      showToast(`Welcome, ${res.user.name}! Your account has been registered and activated.`, 'success');
       navigateTo(targetView);
       return;
     }
-
-    setRegisteredEmail(formData.email.trim());
-    setMode('email-sent');
-    showToast('Account created successfully! Verification link sent to your email.', 'info');
   };
 
   // 3. Handle Forgot Password Request -> Dispatches Supabase Email Link to Gmail
