@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+@layer base {
+  html, body, #root {
+    overflow-x: hidden;
+    max-width: 100vw;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    scrollbar-width: none !important; /* Firefox */
+    -ms-overflow-style: none !important; /* IE and Edge */
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Universal scrollbar removal across Chrome, Safari, Opera, Edge */
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  /* Remove all up/down spinner buttons & scroll wheels from number inputs */
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none !important;
+    margin: 0 !important;
+  }
+
+  input[type=number] {
+    -moz-appearance: textfield !important;
+  }
+
+  img, video, canvas, svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  body {
+    @apply bg-neutral-50 text-neutral-800 antialiased font-sans selection:bg-rose-100 selection:text-rose-900;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .fixed.inset-0.z-50.bg-neutral-950\/80,
+  .fixed.inset-0.z-50.bg-neutral-950\/80 * {
+    visibility: visible;
+  }
+  .fixed.inset-0.z-50.bg-neutral-950\/80 {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: auto;
+    background: white !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+}
+
+/* Clean scrollbar suppression for smooth mobile touch and responsive layouts */
+.no-scrollbar::-webkit-scrollbar,
+.custom-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.no-scrollbar,
+.custom-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
