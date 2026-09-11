@@ -53,11 +53,138 @@ const defaultCustomers = [];
 const defaultOrders = [];
 
 export const supabaseProvider = {
-  // ================= ASYNC SUPABASE DATA SYNCHRONIZATION =================
+  // ================= ASYNC SUPABASE DATA SYNCHRONIZATION & AUTO-SEED =================
+  seedAllToSupabase: async () => {
+    if (!isSupabaseConfigured || !supabase) return;
+    try {
+      // 1. Check Categories
+      const { data: catCheck } = await supabase.from('categories').select('id').limit(1);
+      if (!catCheck || catCheck.length === 0) {
+        const catPayload = defaultCategories.map(c => ({
+          id: c.id,
+          name: c.name,
+          slug: c.slug || c.id,
+          description: c.description || '',
+          image: c.image || '',
+          icon: c.icon || '',
+          item_count: c.itemCount || c.item_count || 12
+        }));
+        await supabase.from('categories').upsert(catPayload);
+      }
+
+      // 2. Check Products
+      const { data: prodCheck } = await supabase.from('products').select('id').limit(1);
+      if (!prodCheck || prodCheck.length === 0) {
+        const prodPayload = defaultProducts.map(p => ({
+          id: p.id,
+          name: p.name,
+          sku: p.sku || ('SKU-' + Math.floor(1000 + Math.random() * 9000)),
+          description: p.description || '',
+          category: p.category,
+          category_name: p.category,
+          category_slug: p.categorySlug || p.category.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          brand: p.brand || 'Rajlaxmi',
+          price: Number(p.price),
+          mrp: Number(p.mrp || p.originalPrice || p.price),
+          original_price: Number(p.originalPrice || p.mrp || p.price),
+          discount: Number(p.discount || 0),
+          stock: Number(p.stock || 25),
+          image: Array.isArray(p.images) ? p.images[0] : (p.image || ''),
+          images: Array.isArray(p.images) ? p.images : (p.image ? [p.image] : []),
+          rating: Number(p.rating || 4.8),
+          review_count: Number(p.reviewCount || p.reviews_count || 12),
+          tags: Array.isArray(p.tags) ? p.tags : [],
+          featured: Boolean(p.featured),
+          bestseller: Boolean(p.bestseller),
+          new_arrival: Boolean(p.newArrival || p.new_arrival),
+          festivals: Array.isArray(p.festivals) ? p.festivals : [],
+          status: 'active'
+        }));
+        await supabase.from('products').upsert(prodPayload);
+      }
+
+      // 3. Check Coupons
+      const { data: couponCheck } = await supabase.from('coupons').select('id').limit(1);
+      if (!couponCheck || couponCheck.length === 0) {
+        const couponPayload = defaultCoupons.map(c => ({
+          id: c.id,
+          code: c.code,
+          discount_type: c.discountType || 'percentage',
+          discount_value: Number(c.discountValue || 10),
+          min_order: Number(c.minOrder || 0),
+          active: true
+        }));
+        await supabase.from('coupons').upsert(couponPayload);
+      }
+
+      // 4. Check Festivals
+      const { data: festCheck } = await supabase.from('festivals').select('id').limit(1);
+      if (!festCheck || festCheck.length === 0) {
+        const festPayload = defaultFestivals.map(f => ({
+          id: f.id,
+          name: f.name,
+          slug: f.slug,
+          description: f.description || '',
+          banner: f.banner || '',
+          thumbnail: f.thumbnail || '',
+          status: f.status || 'paused',
+          priority: f.priority || 1
+        }));
+        await supabase.from('festivals').upsert(festPayload);
+      }
+
+      // 5. Check Banners
+      const { data: bannerCheck } = await supabase.from('banners').select('id').limit(1);
+      if (!bannerCheck || bannerCheck.length === 0) {
+        const bannerPayload = defaultBanners.map(b => ({
+          id: b.id,
+          title: b.title,
+          subtitle: b.subtitle || '',
+          image: b.image,
+          link: b.link || '/products',
+          status: b.status || 'active',
+          priority: b.priority || 1
+        }));
+        await supabase.from('banners').upsert(bannerPayload);
+      }
+
+      // 6. Check Store Settings
+      const { data: settingsCheck } = await supabase.from('store_settings').select('id').limit(1);
+      if (!settingsCheck || settingsCheck.length === 0) {
+        await supabase.from('store_settings').upsert([{
+          id: 'setting-default',
+          store_name: defaultSettings.storeName,
+          tagline: defaultSettings.tagline,
+          phone: defaultSettings.phone,
+          whatsapp_number: defaultSettings.whatsappNumber,
+          email: defaultSettings.email,
+          address: defaultSettings.address,
+          delivery_charge: defaultSettings.deliveryCharge,
+          free_delivery_threshold: defaultSettings.freeDeliveryThreshold,
+          announcement_bar: defaultSettings.announcementBar
+        }]);
+      }
+    } catch (seedErr) {
+      console.warn('Auto seed to Supabase notice:', seedErr.message);
+    }
+  },
+
   syncAllFromSupabase: async () => {
+    // Populate local defaults first so UI is never empty
+    if (!getLocal('products') || getLocal('products', []).length === 0) setLocal('products', defaultProducts);
+    if (!getLocal('categories') || getLocal('categories', []).length === 0) setLocal('categories', defaultCategories);
+    if (!getLocal('coupons') || getLocal('coupons', []).length === 0) setLocal('coupons', defaultCoupons);
+    if (!getLocal('festivals') || getLocal('festivals', []).length === 0) setLocal('festivals', defaultFestivals);
+    if (!getLocal('banners') || getLocal('banners', []).length === 0) setLocal('banners', defaultBanners);
+    if (!getLocal('brands') || getLocal('brands', []).length === 0) setLocal('brands', defaultBrands);
+    if (!getLocal('settings')) setLocal('settings', defaultSettings);
+
     if (!isSupabaseConfigured || !supabase) return;
 
     try {
+      // First auto-seed missing tables in Supabase
+      await supabaseProvider.seedAllToSupabase();
+
       // Sync categories
       const { data: catData } = await supabase.from('categories').select('*');
       if (catData && catData.length > 0) setLocal('categories', catData);
@@ -71,14 +198,17 @@ export const supabaseProvider = {
           sku: p.sku || '',
           description: p.description || '',
           category: p.category,
+          category_name: p.category,
+          categorySlug: p.category_slug || (p.category ? p.category.toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'cosmetics'),
           brand: p.brand,
           price: Number(p.price),
-          mrp: Number(p.mrp) || Number(p.price),
+          mrp: Number(p.mrp || p.original_price || p.price),
+          originalPrice: Number(p.original_price || p.mrp || p.price),
           discount: Number(p.discount) || 0,
           stock: Number(p.stock) || 0,
-          images: Array.isArray(p.images) ? p.images : (p.image_url ? [p.image_url] : ['https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=800&auto=format&fit=crop&q=80']),
+          images: Array.isArray(p.images) && p.images.length > 0 ? p.images : (p.image ? [p.image] : ['https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=800&auto=format&fit=crop&q=80']),
           rating: Number(p.rating) || 5.0,
-          reviewCount: p.review_count ?? p.reviews_count ?? 0,
+          reviewCount: p.review_count ?? p.reviews_count ?? 12,
           tags: Array.isArray(p.tags) ? p.tags : [],
           featured: Boolean(p.featured),
           bestseller: Boolean(p.bestseller),
