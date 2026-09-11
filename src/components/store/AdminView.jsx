@@ -90,7 +90,7 @@ export default function AdminView() {
 
   // Badge Counts for Sidebar
   const badgeCounts = {
-    orders: orders.filter(o => o.status === 'placed' || o.status === 'confirmed' || o.status === 'packing').length,
+    orders: orders.filter(o => !o.status || (o.status.toLowerCase() !== 'delivered' && o.status.toLowerCase() !== 'cancelled')).length,
     products: products.filter(p => (Number(p.stock) || 0) <= 5).length,
     support: tickets.filter(t => t.status === 'open' || t.status === 'pending').length,
     reviews: reviews.filter(r => r.status === 'pending').length,
