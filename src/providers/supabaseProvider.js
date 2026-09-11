@@ -382,6 +382,61 @@ export const supabaseProvider = {
         });
         setLocal('orders', formatted);
       }
+
+      // Sync reviews
+      const { data: reviewsData } = await supabase.from('reviews').select('*').order('created_at', { ascending: false });
+      if (reviewsData && reviewsData.length > 0) {
+        const formattedReviews = reviewsData.map(r => ({
+          id: r.id,
+          productId: r.product_id,
+          product_id: r.product_id,
+          userId: r.user_id || 'guest',
+          customerId: r.user_id || 'guest',
+          userName: r.user_name || 'Customer',
+          customerName: r.user_name || 'Customer',
+          rating: Number(r.rating) || 5,
+          title: r.title || '',
+          comment: r.comment || '',
+          approved: r.approved !== false,
+          status: r.approved !== false ? 'approved' : 'pending',
+          createdAt: r.created_at || new Date().toISOString()
+        }));
+        setLocal('reviews', formattedReviews);
+      }
+
+      // Sync support tickets
+      const { data: ticketsData } = await supabase.from('support_tickets').select('*').order('created_at', { ascending: false });
+      if (ticketsData && ticketsData.length > 0) {
+        const formattedTickets = ticketsData.map(t => ({
+          id: t.id,
+          ticketNumber: t.ticket_number || t.id,
+          subject: t.subject || 'Store Inquiry',
+          customerName: t.customer_name || 'Customer',
+          customerEmail: t.customer_email || '',
+          customerPhone: t.customer_phone || '',
+          status: t.status || 'pending',
+          messages: Array.isArray(t.messages) ? t.messages : [],
+          createdAt: t.created_at || new Date().toISOString()
+        }));
+        setLocal('support_tickets', formattedTickets);
+      }
+
+      // Sync audit logs
+      const { data: logsData } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(100);
+      if (logsData && logsData.length > 0) {
+        const formattedLogs = logsData.map(l => ({
+          id: l.id,
+          user: l.user_name || 'Store Administrator',
+          actor: l.user_name || 'Store Administrator',
+          action: l.action || 'ACTION',
+          target: l.target || 'General',
+          entity: l.target || 'General',
+          details: l.details || '',
+          type: l.type || 'info',
+          timestamp: l.created_at || new Date().toISOString()
+        }));
+        setLocal('audit_logs', formattedLogs);
+      }
     } catch (err) {
       console.warn('Background Supabase Sync note:', err);
     }
@@ -2010,93 +2065,185 @@ export const supabaseProvider = {
 
   // ================= SUPPORT TICKETS =================
   getTickets: () => {
+    return supabaseProvider.getSupportTickets();
+  },
+
+  getSupportTickets: () => {
     return getLocal('support_tickets', []);
   },
 
   getTicketsByCustomer: (query) => {
     const clean = (query || '').toLowerCase().trim();
-    const list = getLocal('support_tickets', []);
+    const list = supabaseProvider.getSupportTickets();
     return list.filter(t => (t.customerEmail && t.customerEmail.toLowerCase().includes(clean)) || (t.customerPhone && t.customerPhone.includes(clean)));
   },
 
-  createTicket: (data) => {
-    const list = getLocal('support_tickets', []);
+  createSupportTicket: (data) => {
+    const list = supabaseProvider.getSupportTickets();
     const newTicket = {
-      id: 'TCK-' + Date.now(),
-      ticketNumber: '#' + Math.floor(10000 + Math.random() * 90000),
-      subject: data.subject || 'Store Inquiry',
+      id: data.id || 'TCK-' + Date.now(),
+      ticketNumber: data.ticketNumber || ('SUP-' + Math.floor(1000 + Math.random() * 9000)),
+      subject: data.subject || data.category || 'Store Inquiry',
+      category: data.category || data.subject || 'General Support',
+      orderNumber: data.orderNumber || '',
       customerName: data.customerName || 'Customer',
       customerEmail: data.customerEmail || '',
       customerPhone: data.customerPhone || '',
-      status: 'Open',
+      status: 'pending',
       priority: data.priority || 'Medium',
-      messages: [{ sender: 'customer', text: data.message, time: new Date().toISOString() }],
+      messages: Array.isArray(data.messages) ? data.messages : [
+        {
+          id: 'msg-' + Date.now(),
+          sender: 'customer',
+          senderName: data.customerName || 'Customer',
+          text: data.message || '',
+          timestamp: new Date().toISOString()
+        }
+      ],
       createdAt: new Date().toISOString()
     };
     const updated = [newTicket, ...list];
     setLocal('support_tickets', updated);
 
-    // Notify Admin
-    try {
-      notificationService.addNotification({
-        type: 'support',
-        title: `New Support Query: ${newTicket.subject}`,
-        message: `${newTicket.customerName} sent a support request: "${data.message.substring(0, 70)}..."`,
-        target: 'admin',
-        linkTab: 'support',
-        linkData: { ticketId: newTicket.id },
-        sound: true
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('support_tickets').insert([{
+        id: newTicket.id,
+        ticket_number: newTicket.ticketNumber,
+        subject: newTicket.subject,
+        customer_name: newTicket.customerName,
+        customer_email: newTicket.customerEmail,
+        customer_phone: newTicket.customerPhone,
+        status: newTicket.status,
+        messages: newTicket.messages,
+        created_at: newTicket.createdAt
+      }]).then(({ error }) => {
+        if (error) console.error('Supabase support ticket insert notice:', error.message);
       });
-    } catch {
-      // ignore
     }
 
     return newTicket;
   },
 
-  addAdminReply: (ticketId, replyText, adminName = 'Store Admin') => {
-    const list = getLocal('support_tickets', []);
+  createTicket: (data) => {
+    return supabaseProvider.createSupportTicket(data);
+  },
+
+  replySupportTicket: (ticketId, replyText, senderName = 'Store Support Admin', newStatus = 'replied', sender = 'admin') => {
+    const list = supabaseProvider.getSupportTickets();
     const index = list.findIndex(t => t.id === ticketId);
     if (index === -1) return null;
-    list[index].messages.push({ sender: 'admin', text: replyText, adminName, time: new Date().toISOString() });
-    list[index].status = 'In Progress';
+
+    const newMsg = {
+      id: 'msg-' + Date.now(),
+      sender,
+      senderName,
+      text: replyText,
+      timestamp: new Date().toISOString()
+    };
+
+    if (!Array.isArray(list[index].messages)) {
+      list[index].messages = [];
+    }
+    list[index].messages.push(newMsg);
+    list[index].status = newStatus;
     setLocal('support_tickets', [...list]);
 
-    // Notify Customer
-    try {
-      notificationService.addNotification({
-        type: 'support',
-        title: `Reply on Support Ticket ${list[index].ticketNumber}`,
-        message: `${adminName} replied: "${replyText.substring(0, 70)}..."`,
-        target: 'customer',
-        linkType: 'support',
-        linkData: { ticketId },
-        sound: true
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('support_tickets').update({
+        messages: list[index].messages,
+        status: newStatus
+      }).eq('id', ticketId).then(({ error }) => {
+        if (error) console.error('Supabase support ticket reply notice:', error.message);
       });
-    } catch {
-      // ignore
     }
 
     return list[index];
   },
 
-  addCustomerFollowup: (ticketId, messageText) => {
-    const list = getLocal('support_tickets', []);
-    const index = list.findIndex(t => t.id === ticketId);
-    if (index === -1) return null;
-    list[index].messages.push({ sender: 'customer', text: messageText, time: new Date().toISOString() });
-    list[index].status = 'Open';
-    setLocal('support_tickets', [...list]);
-    return list[index];
+  addAdminReply: (ticketId, replyText, adminName = 'Store Admin') => {
+    return supabaseProvider.replySupportTicket(ticketId, replyText, adminName, 'replied', 'admin');
   },
 
-  updateTicketStatus: (ticketId, status) => {
-    const list = getLocal('support_tickets', []);
+  addCustomerFollowup: (ticketId, messageText) => {
+    return supabaseProvider.replySupportTicket(ticketId, messageText, 'Customer', 'pending', 'customer');
+  },
+
+  updateSupportTicketStatus: (ticketId, status) => {
+    const list = supabaseProvider.getSupportTickets();
     const index = list.findIndex(t => t.id === ticketId);
     if (index === -1) return null;
     list[index].status = status;
     setLocal('support_tickets', [...list]);
+
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('support_tickets').update({ status }).eq('id', ticketId).then(() => {});
+    }
     return list[index];
+  },
+
+  updateTicketStatus: (ticketId, status) => {
+    return supabaseProvider.updateSupportTicketStatus(ticketId, status);
+  },
+
+  deleteSupportTicket: (ticketId) => {
+    const list = supabaseProvider.getSupportTickets();
+    const updated = list.filter(t => t.id !== ticketId);
+    setLocal('support_tickets', updated);
+
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('support_tickets').delete().eq('id', ticketId).then(() => {});
+    }
+    return true;
+  },
+
+  deleteTicket: (ticketId) => {
+    return supabaseProvider.deleteSupportTicket(ticketId);
+  },
+
+  // ================= AUDIT LOGS =================
+  getAuditLogs: () => {
+    return getLocal('audit_logs', []);
+  },
+
+  logAuditAction: (action, target, details, user = 'Store Administrator', type = 'info') => {
+    const logs = supabaseProvider.getAuditLogs();
+    const newEntry = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      user: user || 'Store Administrator',
+      actor: user || 'Store Administrator',
+      action: action || 'ACTION',
+      target: target || 'General',
+      entity: target || 'General',
+      details: details || '',
+      timestamp: new Date().toISOString(),
+      type: type || 'info'
+    };
+    const updated = [newEntry, ...logs].slice(0, 200);
+    setLocal('audit_logs', updated);
+
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('audit_logs').insert([{
+        id: newEntry.id,
+        user_name: newEntry.user,
+        action: newEntry.action,
+        target: newEntry.target,
+        details: newEntry.details,
+        type: newEntry.type,
+        created_at: newEntry.timestamp
+      }]).then(({ error }) => {
+        if (error) console.error('Supabase audit log insert notice:', error.message);
+      });
+    }
+
+    return newEntry;
+  },
+
+  clearAuditLogs: () => {
+    setLocal('audit_logs', []);
+    if (isSupabaseConfigured && supabase) {
+      supabase.from('audit_logs').delete().neq('id', 'placeholder').then(() => {});
+    }
+    return [];
   },
 
   // ================= NOTIFICATIONS =================
