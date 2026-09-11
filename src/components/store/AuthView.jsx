@@ -145,6 +145,14 @@ export default function AuthView() {
       return;
     }
 
+    const cleanPhone = formData.phone.trim().replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
+      const err = 'Please enter a valid 10-digit mobile phone number.';
+      setErrorMessage(err);
+      showToast(err, 'error');
+      return;
+    }
+
     if (!formData.password || formData.password.length < 6) {
       const err = 'Password must be at least 6 characters long.';
       setErrorMessage(err);

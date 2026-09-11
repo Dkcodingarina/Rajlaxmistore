@@ -182,24 +182,41 @@ export const supabaseProvider = {
       // Sync orders
       const { data: ordersData } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
       if (ordersData && ordersData.length > 0) {
-        const formatted = ordersData.map(o => ({
-          id: o.id,
-          orderNumber: o.order_number || o.id,
-          customerId: o.customer_id || '',
-          customerName: o.customer_name || 'Customer',
-          customerEmail: (o.customer_email || '').toLowerCase().trim(),
-          customerPhone: o.customer_phone || '',
-          address: o.address,
-          items: o.items || [],
-          subtotal: Number(o.subtotal || o.total_amount || 0),
-          discount: Number(o.discount || 0),
-          deliveryFee: Number(o.delivery_fee || 0),
-          totalAmount: Number(o.total_amount || o.total || 0),
-          total: Number(o.total_amount || o.total || 0),
-          paymentMethod: o.payment_method || 'cod',
-          status: o.status || 'Processing',
-          createdAt: o.created_at
-        }));
+        const formatted = ordersData.map(o => {
+          const cName = o.customer_name || 'Customer';
+          const cEmail = (o.customer_email || '').toLowerCase().trim();
+          const cPhone = o.customer_phone || '';
+          const cAddr = o.address || '';
+          return {
+            id: o.id,
+            orderNumber: o.order_number || o.id,
+            customerId: o.customer_id || '',
+            customerName: cName,
+            customerEmail: cEmail,
+            customerPhone: cPhone,
+            customer: {
+              id: o.customer_id || '',
+              name: cName,
+              email: cEmail,
+              phone: cPhone,
+              address: cAddr
+            },
+            shippingAddress: {
+              phone: cPhone,
+              address: cAddr
+            },
+            address: cAddr,
+            items: o.items || [],
+            subtotal: Number(o.subtotal || o.total_amount || 0),
+            discount: Number(o.discount || 0),
+            deliveryFee: Number(o.delivery_fee || 0),
+            totalAmount: Number(o.total_amount || o.total || 0),
+            total: Number(o.total_amount || o.total || 0),
+            paymentMethod: o.payment_method || 'cod',
+            status: o.status || 'Processing',
+            createdAt: o.created_at
+          };
+        });
         setLocal('orders', formatted);
       }
     } catch (err) {
@@ -1414,15 +1431,30 @@ export const supabaseProvider = {
     const orderId = 'ORD-' + Date.now();
     const orderNum = '#' + Math.floor(100000 + Math.random() * 900000);
     const cleanCustomerEmail = (data.customerEmail || data.email || '').toLowerCase().trim();
+    const cName = data.customerName || data.name || 'Customer';
+    const cPhone = data.customerPhone || data.phone || '';
+    const cAddress = data.address || '';
+
     const newOrderObj = {
       id: orderId,
       orderNumber: orderNum,
       order_number: orderNum,
       customerId: data.customerId || null,
-      customerName: data.customerName || 'Customer',
+      customerName: cName,
       customerEmail: cleanCustomerEmail,
-      customerPhone: data.customerPhone || data.phone || '',
-      address: data.address || '',
+      customerPhone: cPhone,
+      customer: {
+        id: data.customerId || null,
+        name: cName,
+        email: cleanCustomerEmail,
+        phone: cPhone,
+        address: cAddress
+      },
+      shippingAddress: {
+        phone: cPhone,
+        address: cAddress
+      },
+      address: cAddress,
       items: data.items || [],
       subtotal: Number(data.subtotal || data.totalAmount || 0),
       discount: Number(data.discount || 0),
@@ -1455,7 +1487,7 @@ export const supabaseProvider = {
       notificationService.addNotification({
         type: 'order',
         title: `📦 New Order ${orderNum}`,
-        message: `${data.customerName || 'Customer'} placed order ${orderNum} worth ₹${newOrderObj.totalAmount}`,
+        message: `${cName} placed order ${orderNum} worth ₹${newOrderObj.totalAmount}`,
         target: 'admin',
         linkTab: 'orders',
         linkData: { orderId, orderNumber: orderNum },
@@ -1484,10 +1516,10 @@ export const supabaseProvider = {
         if (existingIdx === -1) {
           curCusts.unshift({
             id: data.customerId || ('cust-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)),
-            name: data.customerName || cleanCustomerEmail.split('@')[0],
+            name: cName,
             email: cleanCustomerEmail,
-            phone: data.customerPhone || '',
-            address: data.address || '',
+            phone: cPhone,
+            address: cAddress,
             role: 'customer',
             status: 'active',
             createdAt: new Date().toISOString()
@@ -1500,14 +1532,15 @@ export const supabaseProvider = {
     }
 
     if (isSupabaseConfigured && supabase) {
+      const isValidUuid = typeof data.customerId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.customerId);
       const payload = {
         id: orderId,
         order_number: orderNum,
-        customer_id: data.customerId || null,
-        customer_name: data.customerName || 'Customer',
+        customer_id: isValidUuid ? data.customerId : null,
+        customer_name: cName,
         customer_email: cleanCustomerEmail,
-        customer_phone: data.customerPhone || '',
-        address: data.address || '',
+        customer_phone: cPhone,
+        address: cAddress,
         items: data.items || [],
         subtotal: Number(data.subtotal || data.totalAmount || 0),
         discount: Number(data.discount || 0),
@@ -1517,7 +1550,12 @@ export const supabaseProvider = {
         status: 'Processing',
         created_at: new Date().toISOString()
       };
-      supabase.from('orders').insert([payload]).then(() => {
+      supabase.from('orders').upsert([payload]).then(({ error }) => {
+        if (error) {
+          console.warn('Supabase orders table insert error:', error.message);
+        } else {
+          console.log('Order successfully synced to Supabase orders table!');
+        }
         // Also insert order_items if order items exist
         if (Array.isArray(data.items) && data.items.length > 0) {
           const itemPayloads = data.items.map(it => ({
@@ -1528,9 +1566,11 @@ export const supabaseProvider = {
             quantity: Number(it.quantity || 1),
             image_url: Array.isArray(it.images) ? it.images[0] : (it.image || it.image_url || null)
           }));
-          supabase.from('order_items').insert(itemPayloads).then(() => {});
+          supabase.from('order_items').insert(itemPayloads).then(({ error: itemsErr }) => {
+            if (itemsErr) console.warn('Supabase order_items insert note:', itemsErr.message);
+          });
         }
-      });
+      }).catch(err => console.warn('Order sync exception:', err));
     }
 
     return newOrderObj;

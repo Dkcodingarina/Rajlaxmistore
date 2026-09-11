@@ -48,11 +48,15 @@ export default function OrdersModule({
   const filteredOrders = useMemo(() => {
     return orders.filter(o => {
       const q = searchQuery.toLowerCase();
+      const cName = o.customerName || o.customer?.name || '';
+      const cPhone = o.customerPhone || o.customer?.phone || o.shippingAddress?.phone || '';
+      const cEmail = o.customerEmail || o.customer?.email || '';
+
       const matchSearch = !q ||
         (o.id && String(o.id).toLowerCase().includes(q)) ||
-        (o.customer?.name && o.customer.name.toLowerCase().includes(q)) ||
-        (o.customer?.phone && o.customer.phone.toLowerCase().includes(q)) ||
-        (o.customer?.email && o.customer.email.toLowerCase().includes(q));
+        (cName && cName.toLowerCase().includes(q)) ||
+        (cPhone && cPhone.toLowerCase().includes(q)) ||
+        (cEmail && cEmail.toLowerCase().includes(q));
 
       const matchStatus = statusFilter === 'all' || o.status === statusFilter;
       return matchSearch && matchStatus;
@@ -166,8 +170,8 @@ export default function OrdersModule({
             </div>
             <div>
               <strong>CUSTOMER / SHIP TO:</strong><br>
-              <strong>${ord.customer?.name || 'Customer'}</strong><br>
-              Phone: ${ord.customer?.phone || ord.shippingAddress?.phone || 'N/A'}<br>
+              <strong>${ord.customerName || ord.customer?.name || 'Customer'}</strong><br>
+              Phone: ${ord.customerPhone || ord.customer?.phone || ord.shippingAddress?.phone || 'N/A'}<br>
               ${ord.shippingAddress?.address || 'Street Address'}, ${ord.shippingAddress?.city || 'Botad'} - ${ord.shippingAddress?.pincode || '364710'}
             </div>
           </div>
@@ -334,8 +338,8 @@ export default function OrdersModule({
                       </td>
 
                       <td className="p-4">
-                        <div className="font-bold text-neutral-900">{ord.customer?.name || 'Guest Customer'}</div>
-                        <div className="text-[11px] text-neutral-500 font-mono">{ord.customer?.phone || ord.shippingAddress?.phone || 'No phone'}</div>
+                        <div className="font-bold text-neutral-900">{ord.customerName || ord.customer?.name || 'Customer'}</div>
+                        <div className="text-[11px] text-neutral-500 font-mono">{ord.customerPhone || ord.customer?.phone || ord.shippingAddress?.phone || 'No phone'}</div>
                       </td>
 
                       <td className="p-4 font-mono">
@@ -437,14 +441,14 @@ export default function OrdersModule({
                     <User className="w-3.5 h-3.5 text-rose-600" />
                     <span>Customer Contact</span>
                   </span>
-                  <p className="font-black text-sm text-neutral-900">{selectedOrder.customer?.name || 'Customer'}</p>
+                  <p className="font-black text-sm text-neutral-900">{selectedOrder.customerName || selectedOrder.customer?.name || 'Customer'}</p>
                   <p className="text-neutral-600 flex items-center gap-1 font-mono">
                     <Phone className="w-3 h-3 text-neutral-400" />
-                    <span>{selectedOrder.customer?.phone || selectedOrder.shippingAddress?.phone || 'N/A'}</span>
+                    <span>{selectedOrder.customerPhone || selectedOrder.customer?.phone || selectedOrder.shippingAddress?.phone || 'N/A'}</span>
                   </p>
                   <p className="text-neutral-600 flex items-center gap-1 font-mono">
                     <Mail className="w-3 h-3 text-neutral-400" />
-                    <span>{selectedOrder.customer?.email || 'N/A'}</span>
+                    <span>{selectedOrder.customerEmail || selectedOrder.customer?.email || 'N/A'}</span>
                   </p>
                 </div>
 

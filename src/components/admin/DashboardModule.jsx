@@ -442,7 +442,7 @@ export default function DashboardModule({
                         </span>
                       </div>
                       <div className="text-xs font-semibold text-neutral-700 mt-1 truncate">
-                        {ord.customer?.name || 'Customer'} • {ord.items?.length || 1} items
+                        {ord.customerName || ord.customer?.name || 'Customer'} • {ord.items?.length || 1} items
                       </div>
                       <div className="text-[11px] text-neutral-500 truncate">
                         {ord.shippingAddress?.city || 'Botad'}, {ord.paymentMethod || 'COD'}

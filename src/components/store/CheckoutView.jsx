@@ -15,6 +15,45 @@ import {
   Package
 } from 'lucide-react';
 
+const INDIAN_STATES = [
+  'Gujarat',
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chhattisgarh',
+  'Goa',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+  'Andaman and Nicobar Islands',
+  'Chandigarh',
+  'Dadra and Nagar Haveli and Daman and Diu',
+  'Delhi (NCR)',
+  'Jammu and Kashmir',
+  'Ladakh',
+  'Lakshadweep',
+  'Puducherry'
+];
+
 export default function CheckoutView() {
   const {
     cart,
@@ -32,8 +71,9 @@ export default function CheckoutView() {
     phone: currentUser?.phone || '',
     whatsapp: currentUser?.phone || '',
     address: currentUser?.address || '',
-    city: 'Ahmedabad',
-    pincode: '380001',
+    city: 'Botad',
+    state: 'Gujarat',
+    pincode: '364710',
     landmark: '',
     paymentMethod: 'whatsapp', // 'whatsapp' | 'cod' | 'upi'
     notes: ''
@@ -72,8 +112,35 @@ export default function CheckoutView() {
       return;
     }
 
-    if (!formData.name.trim() || !formData.phone.trim() || !formData.address.trim()) {
-      showToast('Please fill out all required delivery fields.', 'error');
+    if (!formData.name.trim()) {
+      showToast('Please enter your Full Name for delivery.', 'error');
+      return;
+    }
+
+    const cleanPhone = (formData.phone || '').replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
+      showToast('Please enter a valid 10-digit Mobile Phone Number.', 'error');
+      return;
+    }
+
+    if (!formData.address.trim()) {
+      showToast('Please enter your House / Flat / Street Address.', 'error');
+      return;
+    }
+
+    if (!formData.city.trim()) {
+      showToast('Please enter your Delivery City.', 'error');
+      return;
+    }
+
+    if (!formData.state) {
+      showToast('Please select your State.', 'error');
+      return;
+    }
+
+    const cleanPincode = (formData.pincode || '').replace(/\D/g, '');
+    if (!cleanPincode || cleanPincode.length < 6) {
+      showToast('Please enter a valid 6-digit Postal Pincode.', 'error');
       return;
     }
 
@@ -90,7 +157,7 @@ export default function CheckoutView() {
       customerEmail: currentUser?.email || '',
       customerPhone: formData.phone || currentUser?.phone || '',
       whatsapp: formData.whatsapp || formData.phone || currentUser?.phone || '',
-      address: `${formData.address}, ${formData.landmark ? formData.landmark + ', ' : ''}${formData.city} - ${formData.pincode}`,
+      address: `${formData.address}, ${formData.landmark ? formData.landmark + ', ' : ''}${formData.city}, ${formData.state} - ${formData.pincode}`,
       items: cart,
       subtotal,
       discount: discountAmount,
@@ -300,7 +367,7 @@ export default function CheckoutView() {
                 ></textarea>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block font-bold text-neutral-700 mb-1">Landmark</label>
                   <input
@@ -308,22 +375,43 @@ export default function CheckoutView() {
                     placeholder="e.g. Near Swaminarayan Temple"
                     value={formData.landmark || ''}
                     onChange={(e) => setFormData({ ...formData, landmark: e.target.value })}
-                    className="w-full p-2.5 bg-neutral-50 rounded-xl border border-neutral-300 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                    className="w-full p-2.5 bg-neutral-50 rounded-xl border border-neutral-300 focus:ring-2 focus:ring-rose-500 focus:outline-none font-medium"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-neutral-700 mb-1">City</label>
+                  <label className="block font-bold text-neutral-700 mb-1">City *</label>
                   <input
                     type="text"
+                    required
+                    placeholder="e.g. Botad / Ahmedabad"
                     value={formData.city || ''}
                     onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                     className="w-full p-2.5 bg-neutral-50 rounded-xl border border-neutral-300 focus:ring-2 focus:ring-rose-500 focus:outline-none font-medium"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-neutral-700 mb-1">Pincode</label>
+                  <label className="block font-bold text-neutral-700 mb-1">State *</label>
+                  <select
+                    required
+                    value={formData.state || 'Gujarat'}
+                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+                    className="w-full p-2.5 bg-neutral-50 rounded-xl border border-neutral-300 focus:ring-2 focus:ring-rose-500 focus:outline-none font-medium cursor-pointer"
+                  >
+                    <option value="">-- Select State --</option>
+                    {INDIAN_STATES.map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-neutral-700 mb-1">Pincode * (6 Digits)</label>
                   <input
                     type="text"
+                    required
+                    maxLength={6}
+                    placeholder="e.g. 364710"
                     value={formData.pincode || ''}
                     onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
                     className="w-full p-2.5 bg-neutral-50 rounded-xl border border-neutral-300 focus:ring-2 focus:ring-rose-500 focus:outline-none font-medium"
