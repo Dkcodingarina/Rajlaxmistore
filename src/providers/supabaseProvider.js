@@ -30,6 +30,17 @@ const setLocal = (key, value) => {
   }
 };
 
+const generateUUID = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 // Rich default catalog structures ready for live Supabase integration and offline fallback
 const defaultCategories = seedCategories;
 const defaultBrands = seedBrands;
@@ -305,6 +316,28 @@ export const supabaseProvider = {
           }
           setLocal('customers', merged);
         }
+
+        // Push any local registered credentials to Supabase profiles table
+        const userCreds = getLocal('user_credentials', {}) || {};
+        const credEmails = Object.keys(userCreds);
+        for (const em of credEmails) {
+          const cUser = userCreds[em];
+          if (cUser && cUser.email && cUser.email !== 'pawardeepanshu97@gmail.com') {
+            const validId = (cUser.id && cUser.id.length === 36 && cUser.id.includes('-')) ? cUser.id : generateUUID();
+            try {
+              await supabase.from('profiles').upsert({
+                id: validId,
+                name: cUser.name || cUser.email.split('@')[0],
+                email: cUser.email.toLowerCase().trim(),
+                phone: cUser.phone || '',
+                role: cUser.role || 'customer',
+                status: 'active'
+              });
+            } catch (upErr) {
+              console.warn('Sync profile up notice:', upErr);
+            }
+          }
+        }
       } catch (profErr) {
         console.warn('Profile sync note:', profErr);
       }
@@ -430,7 +463,7 @@ export const supabaseProvider = {
             .from('profiles')
             .select('*')
             .eq('id', u.id)
-            .single();
+            .maybeSingle();
 
           const isMasterEmail = cleanEmail === 'pawardeepanshu97@gmail.com' || cleanEmail === 'admin@rajlaxmistore.com' || cleanEmail === 'admin@deeura.com';
           const userRole = isMasterEmail ? 'super_admin' : (profile?.role || u.user_metadata?.role || 'customer');
@@ -439,6 +472,22 @@ export const supabaseProvider = {
           if (userStatus === 'blocked' || userStatus === 'suspended') {
             await supabase.auth.signOut();
             return { success: false, message: 'Your account is suspended. Please contact store support.' };
+          }
+
+          // If profile does not exist in profiles table yet, insert it now
+          if (!profile) {
+            try {
+              await supabase.from('profiles').upsert({
+                id: u.id,
+                name: u.user_metadata?.name || localUserMatch?.name || u.email.split('@')[0],
+                email: cleanEmail,
+                phone: u.user_metadata?.phone || localUserMatch?.phone || '',
+                role: userRole,
+                status: 'active'
+              });
+            } catch (pErr) {
+              console.warn('Profile create on login notice:', pErr);
+            }
           }
 
           const user = {
@@ -534,7 +583,7 @@ export const supabaseProvider = {
     }
 
     const cleanEmail = (uEmail || '').toLowerCase().trim();
-    const registeredUserId = 'cust-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+    const registeredUserId = generateUUID();
 
     const newUserObj = {
       id: registeredUserId,
@@ -580,7 +629,10 @@ export const supabaseProvider = {
     // Sync to Supabase Auth & profiles table if Supabase is connected
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data, error } = await supabase.auth.signUp({
+        let activeUserId = registeredUserId;
+
+        // 1. Sign up in Supabase Auth
+        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
           email: cleanEmail,
           password: uPassword,
           options: {
@@ -593,25 +645,43 @@ export const supabaseProvider = {
           }
         });
 
-        const supabaseUserId = data?.user?.id || registeredUserId;
-        await supabase.from('profiles').upsert({
-          id: supabaseUserId,
-          name: uName,
-          email: cleanEmail,
-          phone: uPhone,
-          role: 'customer',
-          address: uAddress || '',
-          status: 'active',
-          updated_at: new Date().toISOString()
-        });
-
-        // Update stored user ID if Supabase created UUID
-        if (data?.user?.id) {
-          newUserObj.id = data.user.id;
-          userCreds[cleanEmail] = newUserObj;
-          setLocal('user_credentials', userCreds);
-          setLocal('auth_user', { ...newUserObj, id: data.user.id });
+        if (signUpData?.user?.id) {
+          activeUserId = signUpData.user.id;
         }
+
+        // 2. Establish active session
+        try {
+          const { data: signInData } = await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password: uPassword
+          });
+          if (signInData?.user?.id) {
+            activeUserId = signInData.user.id;
+          }
+        } catch {
+          // ignore signin fallback
+        }
+
+        // 3. Upsert to public.profiles table (strictly using existing schema columns)
+        const profilePayload = {
+          id: activeUserId,
+          name: uName || cleanEmail.split('@')[0],
+          email: cleanEmail,
+          phone: uPhone || '',
+          role: 'customer',
+          status: 'active'
+        };
+
+        const { error: upsertErr } = await supabase.from('profiles').upsert(profilePayload);
+        if (upsertErr) {
+          console.warn('Supabase profile direct upsert notice:', upsertErr.message);
+        }
+
+        // Update stored user ID with Supabase UUID
+        newUserObj.id = activeUserId;
+        userCreds[cleanEmail] = newUserObj;
+        setLocal('user_credentials', userCreds);
+        setLocal('auth_user', { ...newUserObj, id: activeUserId });
       } catch (sbRegisterErr) {
         console.warn('Supabase background register notice:', sbRegisterErr.message);
       }
