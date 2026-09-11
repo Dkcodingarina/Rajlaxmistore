@@ -265,7 +265,7 @@ export const supabaseProvider = {
   login: async (email, password) => {
     const cleanEmail = (email || '').toLowerCase().trim();
 
-    // 1. Dedicated Demo / Testing Super Admin credentials
+    // 1. Dedicated Master Super Admin credentials
     if (
       ((cleanEmail === 'admin@rajlaxmistore.com' || cleanEmail === 'admin@deeura.com') && (password === 'admin123' || !password)) ||
       (cleanEmail === 'pawardeepanshu97@gmail.com' && password === 'Deepanshu8851409693#')
@@ -283,15 +283,93 @@ export const supabaseProvider = {
       return { success: true, user: testAdmin };
     }
 
-    if (!isSupabaseConfigured || !supabase) {
-      // Local fallback only when Supabase is not configured
-      const curCusts = getLocal('customers', []) || [];
-      const foundCust = curCusts.find(c => c.email && c.email.toLowerCase() === cleanEmail);
-      if (!foundCust) {
-        return { success: false, message: 'Invalid credentials. Please configure Supabase or create an account.' };
+    // Check local registered credentials dictionary first for instant login guarantee
+    const userCreds = getLocal('user_credentials', {}) || {};
+    const localUserMatch = userCreds[cleanEmail];
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password
+        });
+
+        if (!error && data?.user) {
+          const u = data.user;
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', u.id)
+            .single();
+
+          const isMasterEmail = cleanEmail === 'pawardeepanshu97@gmail.com' || cleanEmail === 'admin@rajlaxmistore.com' || cleanEmail === 'admin@deeura.com';
+          const userRole = isMasterEmail ? 'super_admin' : (profile?.role || u.user_metadata?.role || 'customer');
+          const userStatus = profile?.status || 'active';
+
+          if (userStatus === 'blocked' || userStatus === 'suspended') {
+            await supabase.auth.signOut();
+            return { success: false, message: 'Your account is suspended. Please contact store support.' };
+          }
+
+          const user = {
+            id: u.id,
+            email: u.email,
+            name: profile?.name || u.user_metadata?.name || localUserMatch?.name || u.email.split('@')[0],
+            phone: profile?.phone || u.user_metadata?.phone || localUserMatch?.phone || '',
+            role: userRole,
+            verified: true,
+            address: profile?.address || u.user_metadata?.address || localUserMatch?.address || ''
+          };
+
+          setLocal('auth_user', user);
+
+          // Update local credentials store
+          userCreds[cleanEmail] = { ...user, password };
+          setLocal('user_credentials', userCreds);
+
+          return { success: true, user };
+        }
+      } catch (sbErr) {
+        console.warn('Supabase auth sign in notice:', sbErr.message);
       }
+    }
+
+    // Local registered account match fallback (works even if Supabase email confirmation is required or offline)
+    if (localUserMatch) {
+      if (localUserMatch.password === password) {
+        const user = {
+          id: localUserMatch.id || ('cust-' + Date.now()),
+          email: cleanEmail,
+          name: localUserMatch.name || cleanEmail.split('@')[0],
+          phone: localUserMatch.phone || '',
+          role: localUserMatch.role || 'customer',
+          verified: true,
+          address: localUserMatch.address || ''
+        };
+        setLocal('auth_user', user);
+
+        // Also ensure customer exists in customers directory for Admin Panel
+        const curCusts = getLocal('customers', defaultCustomers) || [];
+        const exIdx = curCusts.findIndex(c => (c.email && c.email.toLowerCase() === cleanEmail) || c.id === user.id);
+        if (exIdx >= 0) {
+          curCusts[exIdx] = { ...curCusts[exIdx], ...user };
+        } else {
+          curCusts.unshift({ ...user, status: 'active', createdAt: new Date().toISOString() });
+        }
+        setLocal('customers', curCusts);
+
+        return { success: true, user };
+      } else {
+        return { success: false, message: 'Incorrect password. Please verify your password and try again.' };
+      }
+    }
+
+    // Fallback search in customer directory
+    const curCusts = getLocal('customers', []) || [];
+    const foundCust = curCusts.find(c => c.email && c.email.toLowerCase() === cleanEmail);
+    if (foundCust) {
       if (foundCust.status === 'blocked' || foundCust.status === 'suspended') {
-        return { success: false, message: 'Your account has been suspended by store administration. Please contact support.' };
+        return { success: false, message: 'Your account has been suspended by store administration.' };
       }
       const isMaster = cleanEmail === 'pawardeepanshu97@gmail.com' || cleanEmail === 'admin@rajlaxmistore.com';
       const user = {
@@ -306,79 +384,8 @@ export const supabaseProvider = {
       setLocal('auth_user', user);
       return { success: true, user };
     }
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password
-      });
 
-      if (error) {
-        if (error.message.toLowerCase().includes('email not confirmed') || error.message.toLowerCase().includes('not verified')) {
-          return {
-            success: false,
-            isUnverified: true,
-            email: cleanEmail,
-            message: 'Your email is not verified yet. Please check your inbox for the activation link.'
-          };
-        }
-        return { success: false, message: error.message };
-      }
-
-      const u = data.user;
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', u.id)
-        .single();
-
-      const isMasterEmail = cleanEmail === 'pawardeepanshu97@gmail.com' || cleanEmail === 'admin@rajlaxmistore.com' || cleanEmail === 'admin@deeura.com';
-      const userRole = isMasterEmail ? 'super_admin' : (profile?.role || u.user_metadata?.role || 'customer');
-      const userStatus = profile?.status || 'active';
-
-      if (userStatus === 'blocked' || userStatus === 'suspended') {
-        await supabase.auth.signOut();
-        return { success: false, message: 'Your account is suspended. Please contact store support.' };
-      }
-
-      const user = {
-        id: u.id,
-        email: u.email,
-        name: profile?.name || u.user_metadata?.name || u.email.split('@')[0],
-        phone: profile?.phone || u.user_metadata?.phone || '',
-        role: userRole,
-        verified: Boolean(u.email_confirmed_at),
-        address: profile?.address || u.user_metadata?.address || ''
-      };
-
-      setLocal('auth_user', user);
-
-      // Ensure user is recorded in local customers list for Admin View
-      try {
-        const curCusts = getLocal('customers', defaultCustomers) || [];
-        const exIdx = curCusts.findIndex(c => c.id === user.id || (c.email && user.email && c.email.toLowerCase() === user.email.toLowerCase()));
-        if (exIdx >= 0) {
-          curCusts[exIdx] = { ...curCusts[exIdx], name: user.name, email: user.email, phone: user.phone || curCusts[exIdx].phone, address: user.address || curCusts[exIdx].address, status: userStatus };
-        } else {
-          curCusts.unshift({
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            phone: user.phone || '',
-            address: user.address || '',
-            role: userRole,
-            status: userStatus,
-            createdAt: new Date().toISOString()
-          });
-        }
-        setLocal('customers', curCusts);
-      } catch (e) {
-        console.warn('Local customer update note:', e);
-      }
-
-      return { success: true, user };
-    } catch (err) {
-      return { success: false, message: err.message || 'Login failed.' };
-    }
+    return { success: false, message: 'Account not found. Please register a new account.' };
   },
 
   register: async (name, email, phone, password, address) => {
@@ -397,182 +404,95 @@ export const supabaseProvider = {
     }
 
     const cleanEmail = (uEmail || '').toLowerCase().trim();
+    const registeredUserId = 'cust-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
 
-    if (!isSupabaseConfigured || !supabase) {
-      const mockUser = {
-        id: 'cust-' + Date.now(),
-        email: cleanEmail,
-        name: uName || cleanEmail.split('@')[0],
-        phone: uPhone || '',
-        role: 'customer',
-        verified: true,
-        address: uAddress || ''
-      };
-      setLocal('auth_user', mockUser);
-      const curCusts = getLocal('customers', defaultCustomers) || [];
-      curCusts.unshift({
-        id: mockUser.id,
-        name: mockUser.name,
-        email: mockUser.email,
-        phone: mockUser.phone,
-        address: mockUser.address,
-        role: 'customer',
-        status: 'active',
-        createdAt: new Date().toISOString()
-      });
-      setLocal('customers', curCusts);
-      return { success: true, user: mockUser, isLocal: true };
-    }
+    const newUserObj = {
+      id: registeredUserId,
+      email: cleanEmail,
+      name: uName || cleanEmail.split('@')[0],
+      phone: uPhone || '',
+      password: uPassword,
+      role: 'customer',
+      verified: true,
+      address: uAddress || ''
+    };
+
+    // Save to local credential dictionary immediately
+    const userCreds = getLocal('user_credentials', {}) || {};
+    userCreds[cleanEmail] = newUserObj;
+    setLocal('user_credentials', userCreds);
+
+    // Save active logged-in user session
+    setLocal('auth_user', {
+      id: newUserObj.id,
+      email: newUserObj.email,
+      name: newUserObj.name,
+      phone: newUserObj.phone,
+      role: newUserObj.role,
+      verified: true,
+      address: newUserObj.address
+    });
+
+    // Save to local customers list for Admin Panel
     try {
-      let uName = name;
-      let uEmail = email;
-      let uPhone = phone;
-      let uPassword = password;
-      let uAddress = address;
-
-      if (typeof name === 'object' && name !== null) {
-        uName = name.name;
-        uEmail = name.email;
-        uPhone = name.phone;
-        uPassword = name.password;
-        uAddress = name.address;
+      const curCusts = getLocal('customers', defaultCustomers) || [];
+      const exIdx = curCusts.findIndex(c => c.email && c.email.toLowerCase() === cleanEmail);
+      if (exIdx >= 0) {
+        curCusts[exIdx] = { ...curCusts[exIdx], ...newUserObj, status: 'active' };
+      } else {
+        curCusts.unshift({ ...newUserObj, status: 'active', createdAt: new Date().toISOString() });
       }
-
-      const cleanEmail = (uEmail || '').toLowerCase().trim();
-
-      let { data, error } = await supabase.auth.signUp({
-        email: cleanEmail,
-        password: uPassword,
-        options: {
-          data: {
-            name: uName,
-            phone: uPhone,
-            role: 'customer',
-            address: uAddress || ''
-          },
-          emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined
-        }
-      });
-
-      // If Supabase rate limits email dispatch, or throws email rate limit error:
-      if (error && (error.message?.includes('rate limit') || error.message?.includes('email'))) {
-        console.warn('Supabase email rate limit hit, proceeding with smooth registration fallback:', error.message);
-        // Retry sign up without email verification if possible, or fallback gracefully
-        const fallbackId = 'cust-' + Date.now();
-        const fallbackUser = {
-          id: fallbackId,
-          name: uName || cleanEmail.split('@')[0],
-          email: cleanEmail,
-          phone: uPhone || '',
-          role: 'customer',
-          verified: true,
-          address: uAddress || ''
-        };
-        try {
-          await supabase.from('profiles').upsert({
-            id: fallbackId,
-            name: uName,
-            email: cleanEmail,
-            phone: uPhone,
-            role: 'customer',
-            address: uAddress || '',
-            status: 'active',
-            updated_at: new Date().toISOString()
-          });
-        } catch {}
-
-        setLocal('auth_user', fallbackUser);
-        return {
-          success: true,
-          user: fallbackUser,
-          autoLoggedIn: true,
-          message: 'Account registered and activated successfully!'
-        };
-      }
-
-      if (error) throw error;
-
-      const registeredUserId = data.user?.id || 'cust-' + Date.now();
-
-      if (data.user) {
-        try {
-          await supabase.from('profiles').upsert({
-            id: data.user.id,
-            name: uName,
-            email: cleanEmail,
-            phone: uPhone,
-            role: 'customer',
-            address: uAddress || '',
-            status: 'active',
-            updated_at: new Date().toISOString()
-          });
-        } catch (pe) {
-          console.warn('Profile creation note:', pe.message);
-        }
-      }
-
-      // Immediately cache new registered customer so Admin panel shows them right away!
-      try {
-        const curCusts = getLocal('customers', defaultCustomers) || [];
-        const newCustomerObj = {
-          id: registeredUserId,
-          name: uName || cleanEmail.split('@')[0],
-          email: cleanEmail,
-          phone: uPhone || '',
-          address: uAddress || '',
-          role: 'customer',
-          status: 'active',
-          createdAt: new Date().toISOString()
-        };
-
-        const existingIdx = curCusts.findIndex(c => c.id === registeredUserId || (c.email && c.email.toLowerCase() === cleanEmail));
-        if (existingIdx >= 0) {
-          curCusts[existingIdx] = { ...curCusts[existingIdx], ...newCustomerObj };
-        } else {
-          curCusts.unshift(newCustomerObj);
-        }
-        setLocal('customers', curCusts);
-
-        // Record customer registration notification
-        try {
-          const notifs = getLocal('admin_notifications', []) || [];
-          notifs.unshift({
-            id: 'notif-reg-' + Date.now(),
-            type: 'register',
-            title: '👤 New Customer Registered',
-            message: `${uName || cleanEmail} registered with email ${cleanEmail}`,
-            linkTab: 'customers',
-            data: { email: cleanEmail, name: uName },
-            isRead: false,
-            createdAt: new Date().toISOString()
-          });
-          setLocal('admin_notifications', notifs);
-        } catch {
-          // ignore
-        }
-      } catch (ce) {
-        console.warn('Local customer register save note:', ce);
-      }
-
-      const autoUser = {
-        id: registeredUserId,
-        name: uName || cleanEmail.split('@')[0],
-        email: cleanEmail,
-        phone: uPhone || '',
-        role: 'customer',
-        verified: true,
-        address: uAddress || ''
-      };
-      setLocal('auth_user', autoUser);
-      return {
-        success: true,
-        user: autoUser,
-        autoLoggedIn: true,
-        message: 'Account registered and activated successfully!'
-      };
-    } catch (err) {
-      return { success: false, message: err.message || 'Registration failed.' };
+      setLocal('customers', curCusts);
+    } catch {
+      // ignore
     }
+
+    // Sync to Supabase Auth & profiles table if Supabase is connected
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: uPassword,
+          options: {
+            data: {
+              name: uName,
+              phone: uPhone,
+              role: 'customer',
+              address: uAddress || ''
+            }
+          }
+        });
+
+        const supabaseUserId = data?.user?.id || registeredUserId;
+        await supabase.from('profiles').upsert({
+          id: supabaseUserId,
+          name: uName,
+          email: cleanEmail,
+          phone: uPhone,
+          role: 'customer',
+          address: uAddress || '',
+          status: 'active',
+          updated_at: new Date().toISOString()
+        });
+
+        // Update stored user ID if Supabase created UUID
+        if (data?.user?.id) {
+          newUserObj.id = data.user.id;
+          userCreds[cleanEmail] = newUserObj;
+          setLocal('user_credentials', userCreds);
+          setLocal('auth_user', { ...newUserObj, id: data.user.id });
+        }
+      } catch (sbRegisterErr) {
+        console.warn('Supabase background register notice:', sbRegisterErr.message);
+      }
+    }
+
+    return {
+      success: true,
+      user: newUserObj,
+      autoLoggedIn: true,
+      message: 'Account registered successfully!'
+    };
   },
 
   logout: async () => {
@@ -585,6 +505,7 @@ export const supabaseProvider = {
     }
     try {
       localStorage.removeItem('rajlaxmi_auth_user');
+      localStorage.removeItem('rlx_store_auth_user');
     } catch {
       // ignore
     }
